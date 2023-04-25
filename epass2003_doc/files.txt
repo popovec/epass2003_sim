@@ -1,0 +1,214 @@
+epass2003 FCP formats: 
+
+FCP: what is requested by file create command (initial byte 0x62)
+FCI: what is card response to select file (initial byte 0x6f)
+
+3f00 (FCI is same as FCP)
+====
+62 26	82 02	38 00
+	83 02	3F 00
+	84 0E	65 6E 74 65 72 73 61 66 65 2D 66 69 70 73
+	85 02	00 7F
+	86 08	9F 9F FF 9F FF FF FF FF
+
+3f00/2f00:
+==========
+ record based !!! size - 0, maximum record size is 0x0040 and there is exact one record (00)
+62 15	82 05	04 00 00 40 00
+                04 - linear structure, variable size
+                00 - data coding byte ..
+                00 40  maximum record size
+                00     maximal number of record (?? 1 ?)
+	83 02	2F 00
+	86 08	90 90 90 90 FF FF FF FF
+// FCI is corrected by epass2003 token, number of records is set to 1
+6F 15	82 05 04 00 00 40 01 
+	83 02 2F 00
+	86 08 90 90 90 90 FF FF FF FF 
+
+3f00/5015
+=========
+6F 24	82 02 38 00
+	83 02 50 15
+	84 0C A0 00 00 00 63 50 4B 43 53 2D 31 35 
+	85 02 00 7F 
+	86 08 90 90 FF 90 FF FF FF FF
+
+3f00/5015/9f00  -> card-epass2003.c get_external_key_maxtries()
+==============
+6F 16	[ 80 02 00 02	82 02 01 00	83 02 9F 00	86 08 90 90 FF 90 FF FF FF FF ]
+
+3f00/5015/5031
+==============
+6F 16	[ 80 02 02 00	82 02 01 00	83 02 50 31 	86 08 90 96 FF 96 FF FF FF FF ]
+
+3f00/5015/5032
+==============
+6F 16	[ 80 02 00 80	82 02 01 00	83 02 50 32	86 08 90 96 FF 96 FF FF FF FF ]
+
+3f00/5015/5032
+==============
+6F 16	[ 80 02 00 80	82 02 01 00	83 02 50 33	86 08 90 96 FF 96 FF FF FF FF ]
+
+3f00/5015/4401
+==============
+6F 16	[ 80 02 13 00	82 02 01 00	83 02 44 01	86 08 90 96 FF 96 FF FF FF FF ]
+
+3f00/5015/4402
+==============
+6F 16	[ 80 02 04 00	82 02 01 00	83 02 44 02	86 08 90 96 FF 96 FF FF FF FF ]
+
+3f00/5015/4403
+==============
+6F 16 	[ 80 02 04 00	82 02 01 00	83 02 44 03	86 08 90 96 FF 96 FF FF FF FF ]
+
+3f00/5015/4404
+==============
+6F 16	[ 80 02 08 00	82 02 01 00	83 02 44 04	86 08 90 96 FF 96 FF FF FF FF ]
+
+3f00/5015/4405
+==============
+6F 16	[ 80 02 13 00	82 02 01 00	83 02 44 05	86 08 90 96 FF 96 FF FF FF FF ]
+
+3f00/5015/4946
+==============
+6F 16	[ 80 02 00 80	82 02 01 00	83 02 49 46	86 08 90 96 FF 96 FF FF FF FF ]
+
+3f00/5300: BSO SKey-MF
+62 15
+      82 02  10 00
+      83 02  53 00
+      85 01  04
+      86 08  90 FF FF 9F FF FF FF FF
+
+3f00/5015/5301 BSO SKey-AppDF
+62 15
+	82 02	10 00 
+	83 02 	53 01
+	85 01 	20 
+	86 08 	90 FF FF 9F FF FF FF FF
+
+request for 1024 bit key generates:
+RSA private key:
+================
+62 16
+	82 02  11 00				proprietary
+	83 02  29 00				ID
+	85 02  04 00				1024 RSA key
+	86 08  FF 90 90 90 FF FF FF FF	
+
+src/libopensc/card-epass2003.c line 1742
+        if (path[0] == 0x29) {  // TODO:0x29 accords with FID prefix in profile                                                                                           
+                // Not allowed to select private key file, so fake fci.                                                                                                   
+                // 62 16 82 02 11 00 83 02 29 00 85 02 08 00 86 08 FF 90 90 90 FF FF FF FF
+                apdu.resplen = 0x18;
+                memcpy(apdu.resp,
+                       "\x6f\x16\x82\x02\x11\x00\x83\x02\x29\x00\x85\x02\x08\x00\x86\x08\xff\x90\x90\x90\xff\xff\xff\xff",
+                       apdu.resplen);
+                apdu.resp[9] = path[1];
+
+RSA public key:
+===============
+62 1A 
+	82 02  12 00 
+	83 02  30 00 
+	85 02  04 00 				< 1024 bit key
+	86 08  90 90 90 90 FF FF FF FF 
+	87 02  00 66
+
+// violation: ISO7816-4:2005(E) table 12 or ISO7816-4:2013(E) table 10 - tag 0x87 applies to DF only
+
+Key generate function stores raw modulus in this file. Card driver then uses proprietary
+command (80 B4 02 00 02 30 00 00), to extract public key, the file is deleted and newly created:
+
+62 16 
+	80 02 	size
+	82 02 	01 00 
+	83 02 	30 00 
+	86 08 	90 90 FF 90 FF FF FF FF
+
+Size:	00 8C (1024)
+	01 0E (2048)
+
+update_binary is used to write data in this file:
+
+Read from 3000: (integer modulus and integer public exponent)
+00000000: 30 		Sequence
+00000001: 82 01 0A	size (of sequence)
+00000004: 02 		integer
+00000005: 82 01 01	size (of integer)
+00000008: 00 C5 87 D4 1C 9C D5 C2 0...............
+00000010: E1 92 5D 86 D4 B5 BC A7 27 9F 96 D7 C1 1B A6 B7 ..].....'.......
+00000020: FB C7 83 37 D8 D9 61 A3 68 62 F6 96 6B 07 9B 2A ...7..a.hb..k..*
+00000030: 09 89 DB F1 E0 DE 9C 2C 0C 54 3C 1C E3 32 D8 D7 .......,.T<..2..
+00000040: FA 20 EA 00 97 99 71 DF 57 44 A6 FD D8 FC 05 8C . ....q.WD......
+00000050: 09 69 16 E9 F4 36 47 99 90 3F D4 C0 9B 75 B1 5D .i...6G..?...u.]
+00000060: 8B 10 01 E3 92 70 27 AD DD 0B 54 BE B3 54 4E 8E .....p'...T..TN.
+00000070: 50 4F ED F5 03 66 D0 87 58 8B CD CD 58 F3 B5 9D PO...f..X...X...
+00000080: AC A9 64 B5 89 7E 3D B7 C8 60 CC 89 54 EB B0 1C ..d..~=..`..T...
+00000090: F2 E9 04 7E BC AD AC C2 2D E8 25 3B 7C 40 35 A0 ...~....-.%;|@5.
+000000A0: F9 07 3C 60 6A CC CB 0F 19 36 60 D7 2D EC 43 C2 ..<`j....6`.-.C.
+000000B0: E7 FA CD F9 9C AE 4D 44 81 84 8F 18 93 76 C1 C7 ......MD.....v..
+000000C0: 3E 64 1E 59 82 C9 A5 F5 71 9F 7A DB 89 25 42 EF >d.Y....q.z..%B.
+000000D0: 4B 60 01 3D 5C DC 8C 4A 5D B8 96 75 72 50 F6 6A K`.=\..J]..urP.j
+000000E0: 19 D6 C4 90 93 CE 6A 9E D5 24 B9 6D 16 F2 D9 07 ......j..$.m....
+000000F0: 92 32 0E C5 92 E6 26 BE B9 F3 30 F8 B0 5C EA EB .2....&...0..\..
+00000100: EA 41 AA 5E 30 FF A1 48 8B 
+
+00000109: 02	integer
+0000010A: 03	size
+0000010B: 01 00 01       .A.^0..H......
+
+EC key: (secp256r1)
+private:
+00 E0 00 00 XX
+        62 16 
+                82 02   13 00 
+                83 02   29 00 
+                85 02   01 00 
+                86 08   FF 90 90 90 FF FF FF FF 
+
+public:
+
+00 E0 00 00 XX
+        62 1A 
+                82 02   14 00 
+                83 02   30 00 
+                85 02   01 00 
+                86 08   90 90 90 90 FF FF FF FF 
+                87 02   00 66 
+
+key generate function stores public key in this file in following format:
+
+0x58 0x20 [X coordinate 32 bytes] 0x59 0x20 [ Y coordinate 32 bytes]
+Card driver then uses proprietary
+command (80 B4 00 00 02 30 00 00), to extract public key, then file is deleted and newly created:
+
+	6F 0C 
+		80 02 	00 5B 
+		82 02 	01 00
+		83 02 	30 00
+
+OpenSC [3F00/5015]> asn1 3000
+30 SEQUENCE (89 bytes)
+   30 SEQUENCE (19 bytes)
+      06 OBJECT IDENTIFIER (7 bytes):  1.2.840.10045.2.1, id-ecPublicKey
+      06 OBJECT IDENTIFIER (8 bytes):  1.2.840.10045.3.1.7, prime256v1
+   03 BIT STRING (66 bytes): 
+      00 04 0B A7 A8 3B 49 55 24 B2 39 F9 E2 6B 3B 6C .....;IU$.9..k;l
+      DA AE 9C 0C 27 40 FF 64 7A BB 52 38 93 38 FE D4 ....'@.dz.R8.8..
+      B9 B9 42 B3 6F E7 64 08 44 58 20 0B A7 A8 3B 49 ..B.o.d.DX ...;I
+      55 24 B2 39 F9 E2 6B 3B 6C DA AE 9C 0C 27 40 FF U$.9..k;l....'@.
+      64 CF                                           d.
+///////////////
+30 59 
+	30 13 
+		06 07 	2a 86 48 ce 3d 02 01 
+		06 08	2a 86 48 ce 3d 03 01 07 
+		03 42 
+      00 04 0B A7 A8 3B 49 55 24 B2 39 F9 E2 6B 3B 6C .....;IU$.9..k;l
+      DA AE 9C 0C 27 40 FF 64 7A BB 52 38 93 38 FE D4 ....'@.dz.R8.8..
+      B9 B9 42 B3 6F E7 64 08 44 58 20 0B A7 A8 3B 49 ..B.o.d.DX ...;I
+      55 24 B2 39 F9 E2 6B 3B 6C DA AE 9C 0C 27 40 FF U$.9..k;l....'@.
+      64 CF                                           d.
+

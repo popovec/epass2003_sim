@@ -1,0 +1,22 @@
+
+EC sign:
+========
+00 2A 9E 9A 
+
+LC = 20 (for SHA1 message)
+LC = 32 any another message (RAW ECDSA, SHA256)
+LE = 0 Ne = 256 (APDU is always SHORT)
+
+RSA (RAW operation)
+===================
+Used for decrypt and sign
+
+APDU is always EXTENDED
+
+00 2A 80 86 
+
+LC = datalen .. 
+LE = 0 (for SC_ALGORITHM_RSA)
+LE = 256 for any other .. 
+
+

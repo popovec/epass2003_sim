@@ -1,0 +1,35 @@
+name: GitHub Actions for EPASS2003 simulator
+on: [push]
+jobs:
+  EPASS2003-simulator-GitHub-Actions:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "The job was automatically triggered by a ${{ github.event_name }} event."
+      - run: echo "This job is now running on a ${{ runner.os }} server hosted by GitHub!"
+      - run: echo "The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - run: echo "The ${{ github.repository }} repository has been cloned to the runner."
+      - name: Install additional packages
+        run: |
+          sudo apt-get install libpcsclite-dev pcscd socat pcsc-tools
+          sudo apt-get install opensc
+      - name: compile OpenSC from git
+        run: |
+          sudo dpkg --purge opensc
+          cd ${{ github.workspace }}
+          git clone https://github.com/OpenSC/OpenSC
+          set -ex;
+          cd OpenSC/;
+          ./bootstrap;
+          ./configure;
+          sudo make install;
+      - name: EPASS2003 simulator compilation and test
+        run: |
+          export LD_LIBRARY_PATH=/usr/local/lib;
+          export TERM=xterm-256color
+          make card_reader
+          sudo make card_reader_install
+          make test
+          sudo make card_reader_uninstall
+      - run: echo "This job's status is ${{ job.status }}."

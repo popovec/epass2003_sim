@@ -1,0 +1,63 @@
+
+Install key:
+
+80 E3 00 00 Lc
+	04 - type 3DES key in message
+	01 - PIN Id (KID) 
+	90 - useac ??		seems this corresponds to AC flags ???
+	96 - modifyac ??
+	98 - ??
+	98 - ??
+	00 - ??
+	06 - ??
+	FF - always 0xff ??
+	66 - ??
+		24 bytes 3DES KEY
+
+80 E3 00 00 Lc
+	06 - type normal PIN
+	01 - PIN Id (KID)
+	10
+	16
+	16
+	16
+	00
+	0f
+	ff
+	66
+		16 bytes (raw padded pin ???)
+
+80 E3 00 00 Lc
+	01 -type Key for SM encryption
+	00 - PIN Id (KID)
+	90 EPASS2003_AC_MAC_NOLESS | EPASS2003_AC_EVERYONE,
+	90 EPASS2003_AC_MAC_NOLESS | EPASS2003_AC_EVERYONE,
+	00
+	00
+	00
+	00
+	ff
+	00
+		16 bytes 
+80 E3 00 00 Lc
+	01 -type Key for SM MAC
+	00 - PIN Id (KID)
+	90 EPASS2003_AC_MAC_NOLESS | EPASS2003_AC_EVERYONE,
+	90 EPASS2003_AC_MAC_NOLESS | EPASS2003_AC_EVERYONE,
+	00
+	00
+	00
+	00
+	ff
+	00
+		16 bytes 
+
+
+external auth:
+
+call get challenge, then encrypt challenge with 3DES key derived from PIN
+(key is derived from PIN by sha1 hash), send encrypted challenge back:
+
+00 82 01 80|KID Lc
+	8 bytes in data field
+

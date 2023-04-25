@@ -1,0 +1,70 @@
+
+
+There is support for (selectable at compilation time):
+
+1. DES encryption
+2. AES encryption
+
+1. DES MAC
+2. AES_CBC_MAC
+3. CMAC_AES_128
+
+
+Card uses one key for MAC (128 bit) and one key for encryption (128 bit).
+
+Encryption
+==========
+
+CBC chaining is always used For AES/DES. DES uses this key in EDE mode.
+There is no IV used for encryption!
+
+MAC
+===
+
+IV is used for MAC generation.
+
+DES mode: 1st part of key is used in DES-CBC mode for whole message, then
+result is decrypted by second part of key.  Result of this operation is
+encrypted by 1st part of key.
+
+AES mode is normal AES CBC MAC
+
+AES CMAC is used as specified in RFC4493, but there is one exception .. look
+at issue https://github.com/OpenSC/OpenSC/issues/2734
+
+
+There is special handling for APDU case 1 "0X 82 01 XX"
+
+src/libopensc/card-epass2003.c line 1239:
+`````
+	if(exdata->bFipsCertification && plain->lc == 0 && apdu_buf[1] == 0x82 && apdu_buf[2] == 0x01){
+		if(0 != construct_mac_tlv_case1(card, apdu_buf, data_tlv_len, le_tlv_len, mac_tlv, &mac_tlv_len, exdata->smtype))
+`````
+
+
+There is no IV used to calculate CMAC.  It seems that this is a bug in the
+epass2003 firmware.  The fix for this error in OpenSC is quite complicated
+and unclear.  I have prepared a much more elegant fix for this error, but
+first issue 2734 must be discussed.
+
+
+
+mutual auth
+===========
+
+Both host and card are initialized with preshared keys (one for MAC and one
+for encryption). Host generates random number, this number is transitted to
+card (proprietary APDU).
+
+Card uses host random number and self generated card random number to key
+derivation. One session key is generated fro MAC an one for encryption. IV
+is derived from both randoms. Response consist of card random and MAC.
+
+Host then derives both session keys from host and card random number. MAC is
+checked to prove if response from card is OK.
+
+Proprietary APDU is used to verify if host and card keys are the same.
+
+Warning, according to src/libopensc/card-epass2003.c, git commit 5e06acb...
+there is no MAC checking in SM unwrapping procedure.
+(I already have a patch for this.)

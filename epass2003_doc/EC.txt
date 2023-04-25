@@ -1,0 +1,183 @@
+!!!!  Attention!!!!, as the author of this project, I cannot guarantee any
+information in this text.  I have no way to prove that the text below is
+correct, my epass2003 token does not support EC operations (it is not
+possible to generate a key and import the key is also not supported).
+
+ATR of my token:
+3B 9F 95 81 31 FE 9F 00 66 46 53 05 01 00 11 71 DF 00 00 03 90 00 80
+
+GET data (token capabilities):
+Outgoing APDU (5 bytes):
+00 CA 01 86 00
+Incoming APDU (12 bytes):
+80 01 01 81 02 1D D5 82 01 03 90 00
+
+$ pkcs15-tool -D
+Using reader with a card: Feitian ePass2003 00 00
+PKCS#15 Card [OpenSC Card]:
+        Version        : 0
+        Serial number  : 3307011617051201
+        Manufacturer ID: EnterSafe
+        Last update    : 20230224190813Z
+        Flags          : EID compliant
+
+(rest stripped...)
+
+The basic flaw of the epass2003 driver is that it signals support for EC
+operations, but these operations fail.
+
+$ pkcs11-tool -M
+Using slot 1 with a present token (0x4)
+Supported mechanisms:
+  SHA-1, digest
+  SHA224, digest
+  SHA256, digest
+  SHA384, digest
+  SHA512, digest
+  MD5, digest
+  RIPEMD160, digest
+  GOSTR3411, digest
+  ECDSA, keySize={256,256}, hw, sign, verify
+  ECDSA-SHA224, keySize={256,256}, sign, verify
+  ECDSA-SHA384, keySize={256,256}, sign, verify
+  ECDSA-SHA512, keySize={256,256}, sign, verify
+  ECDSA-SHA1, keySize={256,256}, hw, sign, verify
+  ECDSA-SHA256, keySize={256,256}, hw, sign, verify
+  ECDSA-KEY-PAIR-GEN, keySize={256,256}, hw, generate_key_pair
+  RSA-X-509, keySize={512,2048}, hw, decrypt, sign, verify
+  RSA-PKCS, keySize={512,2048}, hw, decrypt, sign, verify
+  SHA1-RSA-PKCS, keySize={512,2048}, sign, verify
+  SHA224-RSA-PKCS, keySize={512,2048}, sign, verify
+  SHA256-RSA-PKCS, keySize={512,2048}, sign, verify
+  SHA384-RSA-PKCS, keySize={512,2048}, sign, verify
+  SHA512-RSA-PKCS, keySize={512,2048}, sign, verify
+  MD5-RSA-PKCS, keySize={512,2048}, sign, verify
+  RIPEMD160-RSA-PKCS, keySize={512,2048}, sign, verify
+  RSA-PKCS-PSS, keySize={512,2048}, hw, sign, verify
+  SHA1-RSA-PKCS-PSS, keySize={512,2048}, sign, verify
+  SHA224-RSA-PKCS-PSS, keySize={512,2048}, sign, verify
+  SHA256-RSA-PKCS-PSS, keySize={512,2048}, sign, verify
+  SHA384-RSA-PKCS-PSS, keySize={512,2048}, sign, verify
+  SHA512-RSA-PKCS-PSS, keySize={512,2048}, sign, verify
+  RSA-PKCS-OAEP, keySize={512,2048}, hw, decrypt
+  RSA-PKCS-KEY-PAIR-GEN, keySize={512,2048}, generate_key_pair
+
+$ pkcs15-init --generate-key ec/prime256v1 --pin 1234 --auth-id 01
+Using reader with a card: Feitian ePass2003 00 00
+Failed to generate key: Incorrect parameters in APDU
+
+
+
+Let's take a closer look at the EC operations listed in the listing above.
+
+From the listing, it may appear that the card internally supports sha1 and
+sha256, i.e.  that the hash is calculated in the token.  That is certainly
+not true, the card driver (src/libopensc/card-epass2003.c) uses openssl to
+calculate the hash, and the hashing result of openssl is signed by the card
+
+src/libopensc/card-epass2003.c, git commit 5e06acb...
+
+static int epass2003_decipher()....
+
+                 else if (exdata->ecAlgFlags & SC_ALGORITHM_ECDSA_HASH_SHA256)
+                 {
+                         r = hash_data(card, data, datalen, sbuf, SC_ALGORITHM_ECDSA_HASH_SHA256);
+
+hash_data(struct sc_card *card, const unsigned char *data, size_t datalen, unsigned char *hash, unsigned int mechanismType)
+{
+ 
+        if ((NULL == data) || (NULL == hash))
+                 return SC_ERROR_INVALID_ARGUMENTS;
+
+        if(mechanismType & SC_ALGORITHM_ECDSA_HASH_SHA1)
+        {
+                unsigned char data_hash[24] = { 0 };
+                size_t len = 0;
+
+                sha1_digest(card, data, datalen, data_hash);
+
+sha1_digest(struct sc_card *card, const unsigned char *input, size_t length, unsigned char *output)
+{
+         EVP_MD *md = sc_evp_md(card->ctx, "SHA1");
+         int r;
+ 
+         r = openssl_dig(md, input, length, output);
+         sc_evp_md_free(md);
+         return r;
+}
+    
+   
+
+For cards that have the SC_ALGORITHM_ECDSA_RAW operation available, OpenSC
+provides hashing of input data outside the card or the card driver. 
+
+epass2003 token announces support for ECDSA RAW (flag SC_ALGORITHM_ECDSA_RAW)
+
+1611         //set EC Alg Flags
+1612         flags = SC_ALGORITHM_ONBOARD_KEY_GEN|SC_ALGORITHM_ECDSA_HASH_SHA1|SC_ALGORITHM_ECDSA_HASH_SHA256|SC_ALGORITHM_ECDSA_HASH_NONE|SC_ALGORITHM_ECDSA_RAW;
+
+
+Unfortunately, the card driver does not allow the real use of the ECDSA-RAW
+operation due to an error in the MSE code:
+
+
+		if(exdata->ecAlgFlags & SC_ALGORITHM_ECDSA_HASH_SHA1)
+		{
+			r = hash_data(card, data, datalen, sbuf, SC_ALGORITHM_ECDSA_HASH_SHA1);
+			LOG_TEST_RET(card->ctx, r, "hash_data failed"); 
+			sc_format_apdu(card, &apdu, SC_APDU_CASE_3,0x2A, 0x9E, 0x9A);
+			apdu.data = sbuf;
+			apdu.lc = 0x14;
+			apdu.datalen = 0x14;
+		}
+		else if (exdata->ecAlgFlags & SC_ALGORITHM_ECDSA_HASH_SHA256)
+		{
+			r = hash_data(card, data, datalen, sbuf, SC_ALGORITHM_ECDSA_HASH_SHA256);
+			LOG_TEST_RET(card->ctx, r, "hash_data failed");
+			sc_format_apdu(card, &apdu, SC_APDU_CASE_3,0x2A, 0x9E, 0x9A);
+			apdu.data = sbuf;
+			apdu.lc = 0x20;
+			apdu.datalen = 0x20;
+		}
+		else if (exdata->ecAlgFlags & SC_ALGORITHM_ECDSA_HASH_NONE)
+		{
+			sc_format_apdu(card, &apdu, SC_APDU_CASE_3,0x2A, 0x9E, 0x9A);
+			apdu.data = data;
+			apdu.lc = 0x20;
+			apdu.datalen = 0x20;
+		}
+		else
+		{
+			return SC_ERROR_NOT_SUPPORTED;
+		}
+
+Flag SC_ALGORITHM_ECDSA_RAW ends with SC_ERROR_NOT_SUPPORTED...
+
+It would be best to remove the hashing from the card driver and leave it to
+common code in OpenSC.  Especially it would be necessary to add support for
+ECDSA RAW..
+
+@@ -2091,6 +2042,11 @@ epass2003_set_security_env(struct sc_card *card, const sc_security_env_t * env,
+                        sbuf[2] = 0x92;
+                        exdata->ecAlgFlags = SC_ALGORITHM_ECDSA_HASH_NONE;
+                }
++               else if (env->algorithm_flags & SC_ALGORITHM_ECDSA_RAW)
++               {
++                       sbuf[2] = 0x92;
++                       exdata->ecAlgFlags = SC_ALGORITHM_ECDSA_HASH_NONE;
++               }
+                else
+                {
+                        sc_log(card->ctx, "%0x Alg Not Support! ", env->algorithm_flags);
+
+
+Another error concerns the alignment of input data that is shorter than 32
+bytes.  Because of this error, neither pkcs11 EC sign with sha224 nor the
+"pkcs15-crypt" operation, which sends less than 32 bytes of input data,
+works correctly.
+
+Specifically, the error consists in the fact that if we want to sign, for
+for example the string "0xaa 0x55", we need to send exactly 32 bytes.. 
+"0x00...0x00,0xaa,0x55" to the card ..  these 0x00 should be added by the
+card driver ...  which is not happening.
+

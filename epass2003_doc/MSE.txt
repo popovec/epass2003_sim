@@ -1,0 +1,19 @@
+
+TAG 0x80 - algorithm
+TAG 0x81 - key file ID
+
+ RSA:
+ 00 22 41 B8 07 
+      80 01 84 
+      81 02 29 00
+
+ EC sign (raw ECDSA or SHA256):
+
+ 00 22 41 B6
+     80 01 92
+     81 02 29 00
+
+ EC sign SHA1:
+ 00 22 41 B6 07
+      80 01 91
+      81 02 29 00

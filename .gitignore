@@ -1,0 +1,6 @@
+*~
+*.o
+card_mem
+build/
+tmp/
+epass2003_sim
