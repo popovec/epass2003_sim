@@ -12,7 +12,7 @@ jobs:
       - run: echo "The ${{ github.repository }} repository has been cloned to the runner."
       - name: Install additional packages
         run: |
-          sudo apt-get install libpcsclite-dev pcscd socat pcsc-tools
+          sudo apt-get install libpcsclite-dev pcscd socat pcsc-tools libcmocka-dev
           sudo apt-get install opensc
       - name: compile OpenSC from git
         run: |
