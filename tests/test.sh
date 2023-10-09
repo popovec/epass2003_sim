@@ -27,3 +27,14 @@ echo "testing EC sing"
 tests/ec_sign_test.sh
 echo "Erasing card"
 pkcs15-init -E -T
+## run p11test
+if [ -x "OpenSC/src/tests/p11test/p11test" ]; then
+	echo "p11test, initializing token, keys..."
+	pkcs15-init -C -T -p pkcs15+onepin --pin 1234 --puk 123456
+	pkcs15-init --generate-key rsa/2048 --key-usage sign --pin 1234 --auth-id 01 --id 1 --label 'RSA2k key'
+	pkcs15-init --generate-key rsa/2048 --key-usage decrypt --pin 1234 --auth-id 01 --id 2 --label 'RSA2k encryption key'
+	pkcs15-init --generate-key ec/prime256v1 --key-usage sign --pin 1234 --auth-id 01 --id 3
+	cd OpenSC/src/tests/p11test
+	./p11test -p 1234 -o epass2003_ref_new.json
+	diff -u epass2003_ref.json epass2003_ref_new.json
+fi
